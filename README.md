@@ -2,6 +2,7 @@
 
 queue-rs is a library implemented using rust based on the **Implement Lock-Free Queues** paper algorithm.
 
+
 ### quick start
 
 ```rust
@@ -10,6 +11,7 @@ q.enq(1 as *mut u8);
 assert_eq!(q.deq(), Some(1 as *mut u8));
 assert_eq!(q.deq(), None);
 ```
+
 
 ### benchmark
 
@@ -28,4 +30,8 @@ main.rs benchmark output:
 | queue_thread_n_m(8, 100000) | **544.476377ms** | **680ns** |
 | list_thread_n_m(8, 100000)  | 980.688619ms | 1225ns |
 
+
+### reference
+
+[Implementing Lock-Free Queues (1994)](http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.53.8674)
 
