@@ -4,15 +4,14 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-mod queue;
-use queue::Queue;
+use queue_rs::Queue;
 
 fn queue_loop_n(n: u32) -> Duration {
     let q = Queue::new();
     let earler = Instant::now();
 
     for i in 0..n {
-        q.enq(i as *mut u8);
+        q.enq(i);
     }
     for _ in 0..n {
         q.deq();
@@ -26,7 +25,7 @@ fn list_loop_n(n: u32) -> Duration {
     let earler = Instant::now();
 
     for i in 0..n {
-        l.lock().unwrap().push_front(i as *mut u8);
+        l.lock().unwrap().push_front(i);
     }
     for _ in 0..n {
         l.lock().unwrap().pop_back();
@@ -77,7 +76,7 @@ fn queue_thread_n_m(n: u32, m: u32) -> Duration {
             let start = Instant::now();
 
             for i in 0..m {
-                q.enq(i as *mut u8);
+                q.enq(i);
             }
             for _ in 0..m {
                 q.deq();
