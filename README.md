@@ -7,8 +7,8 @@ queue-rs is a library implemented using rust based on the **Implement Lock-Free 
 
 ```rust
 let q = Queue::new();
-q.enq(1 as *mut u8);
-assert_eq!(q.deq(), Some(1 as *mut u8));
+q.enq(1);
+assert_eq!(q.deq(), Some(1));
 assert_eq!(q.deq(), None);
 ```
 
