@@ -1,56 +1,49 @@
-use std::ptr;
-use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
+
+use crossbeam_epoch::{self as epoch, Atomic, Owned, Shared};
 
 unsafe impl<T: Send> Sync for Queue<T> {}
 
 struct Node<T: Send> {
-    next: AtomicPtr<Node<T>>,
-    value: Option<T>,
+    next: Atomic<Node<T>>,
+    data: Option<T>,
 }
 
 impl<T: Send> Node<T> {
     fn new(v: T) -> Self {
         Self {
             next: Default::default(),
-            value: Some(v),
+            data: Some(v),
         }
     }
 
     fn sentinel() -> Self {
         Self {
-            next: Default::default(),
-            value: None,
+            next: Atomic::null(),
+            data: None,
         }
     }
 }
 
 pub struct Queue<T: Send> {
-    head: AtomicPtr<Node<T>>,
-    tail: AtomicPtr<Node<T>>,
-}
-
-impl<T: Send> Drop for Queue<T> {
-    fn drop(&mut self) {
-        let mut p = self.head.load(Ordering::Relaxed);
-
-        while !p.is_null() {
-            unsafe {
-                let next = (*p).next.load(Ordering::Relaxed);
-                Box::from_raw(p);
-                p = next;
-            }
-        }
-    }
+    head: Atomic<Node<T>>,
+    tail: Atomic<Node<T>>,
 }
 
 impl<T: Send> Queue<T> {
     pub fn new() -> Self {
-        let dummy_ptr = Box::into_raw(Box::new(Node::sentinel()));
+        let q = Queue {
+            head: Atomic::null(),
+            tail: Atomic::null(),
+        };
+        let sentinel = Owned::new(Node::sentinel());
 
-        Self {
-            head: AtomicPtr::new(dummy_ptr),
-            tail: AtomicPtr::new(dummy_ptr),
-        }
+        let guard = unsafe { &epoch::unprotected() };
+
+        let sentinel = sentinel.into_shared(guard);
+        q.head.store(sentinel, Relaxed);
+        q.tail.store(sentinel, Relaxed);
+        q
     }
 
     pub fn enq(&self, v: T) {
@@ -58,26 +51,26 @@ impl<T: Send> Queue<T> {
     }
 
     unsafe fn try_enq(&self, v: T) {
-        let node = Box::into_raw(Box::new(Node::new(v)));
+        let guard = &epoch::pin();
+        let node = Owned::new(Node::new(v)).into_shared(guard);
 
         loop {
-            let p = self.tail.load(Ordering::Acquire);
+            let p = self.tail.load(Acquire, guard);
 
-            if (*p)
+            if (*p.as_raw())
                 .next
-                .compare_exchange(ptr::null_mut(), node, Ordering::Release, Ordering::Relaxed)
+                .compare_exchange(Shared::null(), node, Release, Relaxed, guard)
                 .is_ok()
             {
-                let _ = self
-                    .tail
-                    .compare_exchange(p, node, Ordering::Acquire, Ordering::Relaxed);
+                let _ = self.tail.compare_exchange(p, node, Release, Relaxed, guard);
                 return;
             } else {
                 let _ = self.tail.compare_exchange(
                     p,
-                    (*p).next.load(Ordering::Acquire),
-                    Ordering::Release,
-                    Ordering::Relaxed,
+                    (*p.as_raw()).next.load(Acquire, guard),
+                    Release,
+                    Relaxed,
+                    guard,
                 );
             }
         }
@@ -88,12 +81,12 @@ impl<T: Send> Queue<T> {
     }
 
     unsafe fn try_deq(&self) -> Option<T> {
-        let mut p;
+        let guard = &epoch::pin();
 
         loop {
-            p = self.head.load(Ordering::Acquire);
+            let p = self.head.load(Acquire, guard);
 
-            if (*p).next.load(Ordering::Acquire).is_null() {
+            if (*p.as_raw()).next.load(Acquire, guard).is_null() {
                 return None;
             }
 
@@ -101,16 +94,16 @@ impl<T: Send> Queue<T> {
                 .head
                 .compare_exchange(
                     p,
-                    (*p).next.load(Ordering::Acquire),
-                    Ordering::Release,
-                    Ordering::Relaxed,
+                    (*p.as_raw()).next.load(Acquire, guard),
+                    Release,
+                    Relaxed,
+                    guard,
                 )
                 .is_ok()
             {
-                break;
+                let next = (*p.as_raw()).next.load(Acquire, guard).as_raw() as *mut Node<T>;
+                return (*next).data.take();
             }
         }
-
-        (*(*p).next.load(Ordering::Acquire)).value.take()
     }
 }
